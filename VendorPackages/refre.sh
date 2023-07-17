@@ -1,11 +1,16 @@
+if ! which jq > /dev/null 2>&1; then
+    brew install jq
+fi
+
 rm -rf Sources && mkdir -p Sources
 
-cd _Proxy # directory for local package with remote dependencies
+cd _Proxy
 
-swift package clean
+rm -rf .build .swiftpm Package.resolved
+
 swift package update
 
-required_products=$(swift package describe --type json | jq -c '(.targets[] | select(.name=="VendorPackages")) | .product_dependencies[]')
+required_products=$(swift package describe --type json | jq -c '.targets[] | .product_dependencies[]')
 
 for repo in $(ls .build/checkouts); do
     echo $repo
@@ -45,6 +50,15 @@ for repo in $(ls .build/checkouts); do
         fi
 
         if [ $type == "library" ]; then
+            echo "$target" | jq --raw-output 'if has("resources") then (.resources[] | .path) else null end' | while read -r resource; do
+                if [ "$resource" == "null" ]; then
+                    continue
+                fi
+                resource_path="${resource##*.build/checkouts/$repo/$path/}"
+                mkdir -p ../Sources/$repo/$path/"$(dirname "$resource_path")"
+                cp .build/checkouts/$repo/$path/"$resource_path" ../Sources/$repo/$path/"$resource_path"
+            done
+
             echo "$target" | jq --raw-output '.sources[]' | while read -r source; do
                 mkdir -p ../Sources/$repo/$path/"$(dirname "$source")"
                 cp .build/checkouts/$repo/$path/"$source" ../Sources/$repo/$path/"$source"
@@ -52,3 +66,5 @@ for repo in $(ls .build/checkouts); do
         fi
     done
 done
+
+rm -rf .build .swiftpm Package.resolved
